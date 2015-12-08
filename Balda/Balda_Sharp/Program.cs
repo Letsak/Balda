@@ -16,6 +16,7 @@ namespace Balda_Sharp
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new Form_Menu());
             Application.Run(new Form_Game());
         }
     }

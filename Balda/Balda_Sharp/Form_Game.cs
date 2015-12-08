@@ -5,43 +5,45 @@ using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.IO;
 using Microsoft.DirectX;
 using Microsoft.DirectX.AudioVideoPlayback;
 
+
 namespace Balda_Sharp
 {
     public partial class Form_Game : Form
     {
-        char alphabet_char;
+        char[] alphabet = Enumerable.Range(0, 32).Select((x, i) => (char)('А' + i)).ToArray();
+        char alphabet_char = '\0';
         int[][] MatrixColor = new int[5][];
+        string startSlovo;
         string slovo = "";
-        int XGreen = 0;
-        int YGreen = 0;
+        int XGreen = 0, YGreen = 0;
+        bool round = false;
+        bool timer_flag = Form_Menu.time;
+        int timer_interval = 1000;
+        int time = 60;
+        int pos_time = 60;
         
+
+
         public Form_Game()
         {
             InitializeComponent();
-        }
+            menu = new Form_Menu();
 
-        
-
-        private void Form_Game_Load(object sender, EventArgs e)
-        {
-            
             // Инициальзация таблицы-поля
             dataGridView_Pole.Rows.Clear();
             dataGridView_Pole.ColumnCount = 5;
-            dataGridView_Pole.Rows.Add(4);
+            dataGridView_Pole.Rows.Add(5 - 1);
             for (int i = 0; i < dataGridView_Pole.ColumnCount; i++)
                 dataGridView_Pole.Columns[i].Width = 50;
             dataGridView_Pole.AllowUserToResizeRows = false;
             dataGridView_Pole.AllowUserToResizeColumns = false;
 
             // Инициализация таблицы-алфавита
-            char[] alphabet = Enumerable.Range(0, 32).Select((x, i) => (char)('А' + i)).ToArray();
             dataGridView_Alphabet.Rows.Clear();
             dataGridView_Alphabet.ColumnCount = 4;
             dataGridView_Alphabet.Rows.Add(7);
@@ -65,55 +67,67 @@ namespace Balda_Sharp
                 for (int j = 0; j < 5; j++)
                     MatrixColor[i][j] = 0;
             }
-            ClearColor(); // Очистить цвет
+
             InputStart(); // Ввести первое слово
+            ClearColor(); // Очистить цвет
+            if (timer_flag)
+            {
+                timer1.Interval = timer_interval;
+                timer1.Enabled = true;
+                label_timer.Text = time.ToString();
+            }
+            else label_timer.Visible = false;
+            
         }
 
-        private void dataGridView_SelectionClear(object sender, EventArgs e)
+        Audio audio = new Audio("IND.mp3");
+        Form_Menu menu;
+
+        
+
+        
+        // Функция сброса стандартного выделения DataGrid
+        private void dataGridView_SelectionChanged(object sender, EventArgs e)
         {
-            ((DataGridView)sender).CurrentCell.Selected = false; // Сброс стандартного выделения DataGrid
+            ((DataGridView)sender).CurrentCell.Selected = false;
         }
 
         private void dataGridView_Pole_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
         {
             // Ввод буквы
-            if ((slovo == "") && (alphabet_char != '\0') && (MatrixColor[e.RowIndex][e.ColumnIndex] != 1) && (!CheckGreen()) && (Convert.ToChar(dataGridView_Pole.Rows[e.RowIndex].Cells[e.ColumnIndex].Value) != alphabet_char))
+            if ((slovo == "") && (CheckFourSidesMatrixColor(e.RowIndex, e.ColumnIndex, 1)) && (MatrixColor[e.RowIndex][e.ColumnIndex] != 2) && (alphabet_char == '\0') && (MatrixColor[e.RowIndex][e.ColumnIndex] != 1) && (!CheckSelection()))
             {
-                if (CheckFourSidesMatrixColor(e.RowIndex, e.ColumnIndex, 1))
-                {
-                    for (int i = 0; i < 5; i++)
-                        for (int j = 0; j < 5; j++)
-                            if (MatrixColor[i][j] == 2) // Проверка на синий цвет
-                            {
-                                dataGridView_Pole.Rows[i].Cells[j].Value = null; // Сброс буквы клетки поля
-                                MatrixColor[i][j] = 0; // Сброс цвета клетки поля
-                            }
-                    MatrixColor[e.RowIndex][e.ColumnIndex] = 2; // Запись синего цвета в ячейку матрицы цвета
-                    dataGridView_Pole.Rows[e.RowIndex].Cells[e.ColumnIndex].Value = alphabet_char.ToString();
-                    ClearAlphabet();
-                }
+                for (int i = 0; i < 5; i++)
+                    for (int j = 0; j < 5; j++)
+                        if (MatrixColor[i][j] == 2) // Проверка на синий цвет
+                        {
+                            dataGridView_Pole.Rows[i].Cells[j].Value = null; // Сброс буквы клетки поля
+                            MatrixColor[i][j] = 0; // Сброс цвета клетки поля
+                        }
+                panel_Alphabet.Enabled = true;
+                button_Clear.Enabled = true;
+                MatrixColor[e.RowIndex][e.ColumnIndex] = 2; // Запись синего цвета в ячейку матрицы цвета
                 ClearColor();
             }
             //Выделение слова
-            else if ((CheckBlue() || CheckGreen()) && (!CheckGreen() || (CheckFourSidesPole(e.RowIndex, e.ColumnIndex))) && ((MatrixColor[e.RowIndex][e.ColumnIndex] == 1) || (MatrixColor[e.RowIndex][e.ColumnIndex] == 2)) && !CheckGreen(e.RowIndex, e.ColumnIndex))
+            else if (CheckBlueAndValue() && (!CheckSelection() || CheckFourSidesPole(e.RowIndex, e.ColumnIndex)) && (MatrixColor[e.RowIndex][e.ColumnIndex] == 1 || MatrixColor[e.RowIndex][e.ColumnIndex] == 2) && !CheckGreen(e.RowIndex, e.ColumnIndex))
             {
-                dataGridView_Pole.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = System.Drawing.Color.LightGreen;
-                button_Clear.Enabled = true;
+                if(slovo.Length == 0) dataGridView_Pole.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.Red;
+                else dataGridView_Pole.Rows[e.RowIndex].Cells[e.ColumnIndex].Style.BackColor = Color.LightGreen;
+                panel_Alphabet.Enabled = false;
                 XGreen = e.RowIndex;
                 YGreen = e.ColumnIndex;
                 slovo += dataGridView_Pole.Rows[e.RowIndex].Cells[e.ColumnIndex].Value;
-                button_Add.Enabled = true;
-                ClearAlphabet();
+                if (CheckGreenInBlue() && CountGreen() >= 2) button_Add.Enabled = true;
             }
         }
 
         // Функция ввода первого слова
-        void InputStart()
+        private void InputStart()
         {
             string[] temp_mas = File.ReadAllLines("slovar.txt", UnicodeEncoding.Default);
             string[] FiveStart = new string[0];
-            int k = 0;
-            for (int i = 0; i < temp_mas.Length; i++)
+            for (int i = 0, k = 0; i < temp_mas.Length; i++)
             {
                 if (temp_mas[i].Length == 5)
                 {
@@ -121,68 +135,47 @@ namespace Balda_Sharp
                     FiveStart[k] = temp_mas[i].ToUpper();
                     k++;
                 }
-
             }
             Random FiveStartRandom = new Random();
-            string str = FiveStart[FiveStartRandom.Next(0, FiveStart.Length - 1)];
+            startSlovo = FiveStart[FiveStartRandom.Next(0, FiveStart.Length - 1)];
             for (int i = 0; i < dataGridView_Pole.ColumnCount; i++)
             {
                 MatrixColor[2][i] = 1;
-                dataGridView_Pole.Rows[2].Cells[i].Value = str[i].ToString();
-            }
-            ClearColor();
-        }
-
-        private void dataGridView_Alphabet_CellMouseClick(object sender, DataGridViewCellMouseEventArgs e)
-        {
-            // Выбор буквы из алфавита
-            if (!CheckGreen())
-            {
-                for (int i = 0; i < 8; i++)
-                    for (int j = 0; j < 4; j++)
-                        dataGridView_Alphabet.Rows[i].Cells[j].Style.BackColor = System.Drawing.Color.White;
-                dataGridView_Alphabet.CurrentCell.Style.BackColor = System.Drawing.Color.LightGreen;
-                alphabet_char = char.Parse(dataGridView_Alphabet.CurrentCell.Value.ToString());
+                dataGridView_Pole.Rows[2].Cells[i].Value = startSlovo[i].ToString();
             }
         }
 
         // Функция очистки цвета по матрице цвета
-        void ClearColor()
+        private void ClearColor()
         {
-            button_Add.Enabled = false;
             // Проверка на цвета в матрице цветов и присвоение их полю
             for (int i = 0; i < 5; i++)
                 for (int j = 0; j < 5; j++)
                     switch (MatrixColor[i][j])
                     {
-                        case 0: dataGridView_Pole.Rows[i].Cells[j].Style.BackColor = System.Drawing.Color.White; if (!CheckGreen()) button_Clear.Enabled = false; break;
-                        case 1: dataGridView_Pole.Rows[i].Cells[j].Style.BackColor = System.Drawing.Color.LightSkyBlue; if (!CheckGreen()) button_Clear.Enabled = false; break;
-                        case 2: dataGridView_Pole.Rows[i].Cells[j].Style.BackColor = System.Drawing.Color.LightBlue; if (!CheckGreen()) button_Clear.Enabled = false; break;
-                   }
+                        case 0: dataGridView_Pole.Rows[i].Cells[j].Style.BackColor = Color.White; break;
+                        case 1: dataGridView_Pole.Rows[i].Cells[j].Style.BackColor = Color.LightSkyBlue; break;
+                        case 2: dataGridView_Pole.Rows[i].Cells[j].Style.BackColor = Color.LightBlue; break;
+                    }
             // Динамическое выделение редактируемых ячеек
             for (int i = 0; i < 5; i++)
                 for (int j = 0; j < 5; j++)
                     if (MatrixColor[i][j] == 1)
                     {
-                        if (((i - 1) >= 0) && (MatrixColor[i - 1][j] == 0)) dataGridView_Pole.Rows[i - 1].Cells[j].Style.BackColor = System.Drawing.Color.LightGray;
-                        if (((j + 1) < 5) && (MatrixColor[i][j + 1] == 0)) dataGridView_Pole.Rows[i].Cells[j + 1].Style.BackColor = System.Drawing.Color.LightGray;
-                        if (((i + 1) < 5) && (MatrixColor[i + 1][j] == 0)) dataGridView_Pole.Rows[i + 1].Cells[j].Style.BackColor = System.Drawing.Color.LightGray;
-                        if (((j - 1) >= 0) && (MatrixColor[i][j - 1] == 0)) dataGridView_Pole.Rows[i].Cells[j - 1].Style.BackColor = System.Drawing.Color.LightGray;
+                        if (((i - 1) >= 0) && (MatrixColor[i - 1][j] == 0)) dataGridView_Pole.Rows[i - 1].Cells[j].Style.BackColor = Color.LightGray;
+                        if (((j + 1) < 5) && (MatrixColor[i][j + 1] == 0)) dataGridView_Pole.Rows[i].Cells[j + 1].Style.BackColor = Color.LightGray;
+                        if (((i + 1) < 5) && (MatrixColor[i + 1][j] == 0)) dataGridView_Pole.Rows[i + 1].Cells[j].Style.BackColor = Color.LightGray;
+                        if (((j - 1) >= 0) && (MatrixColor[i][j - 1] == 0)) dataGridView_Pole.Rows[i].Cells[j - 1].Style.BackColor = Color.LightGray;
                     }
+            button_Add.Enabled = false;
         }
 
-        void ClearAlphabet()
+        private bool CheckFourSidesPole(int row, int col)
         {
-            for (int i = 0; i < 4; i++)
-                for (int j = 0; j < 8; j++)
-                    if (dataGridView_Alphabet.CurrentCell.Style.BackColor == System.Drawing.Color.LightGreen) // Проверка на выделение буквы алфавита в таблице
-                    {
-                        dataGridView_Alphabet.CurrentCell.Style.BackColor = System.Drawing.Color.White; // Сброс выделения
-                    }
-            alphabet_char = '\0';
+            // color - цвет в матрице цвета
+            if ((((row - 1) >= 0) && (((row - 1) == XGreen) && (col == YGreen))) || (((col + 1) < 5) && ((row == XGreen) && ((col + 1) == YGreen))) || (((row + 1) < 5) && (((row + 1) == XGreen) && (col == YGreen))) || (((col - 1) >= 0) && ((row == XGreen) && ((col - 1) == YGreen)))) return true;
+            else return false;
         }
-
-        // Функция проверки налиция цвета в четырех направлениях длинной в одну клетку
         bool CheckFourSidesMatrixColor(int row, int col, int color)
         {
             // color - цвет в матрице цвета
@@ -190,49 +183,15 @@ namespace Balda_Sharp
             else return false;
         }
 
-        bool CheckFourSidesPole(int row, int col)
-        {
-            // color - цвет в матрице цвета
-            if ((((row - 1) >= 0) && (((row - 1) == XGreen) && (col == YGreen))) || (((col + 1) < 5) && ((row == XGreen) && ((col + 1) == YGreen))) || (((row + 1) < 5) && (((row + 1) == XGreen) && (col == YGreen))) || (((col - 1) >= 0) && ((row == XGreen) && ((col - 1) == YGreen)))) return true;
-            else return false;
-        }
-
         // Функция проверки поля на наличие выделения
-        bool CheckGreen()
-        {
-           bool flag = false;
-           for (int i = 0; i < 5; i++)
-           {
-               for (int j = 0; j < 5; j++)
-               {
-                   if (dataGridView_Pole.Rows[i].Cells[j].Style.BackColor == System.Drawing.Color.LightGreen)
-                   {
-                       flag = true;
-                       break;
-                   }
-               }
-               if (flag) break;
-           }
-           if (flag) return true;
-           else return false;
-        }
-
-        // Функция проверки поля на наличие выделения
-        bool CheckGreen(int row, int col)
-        {
-            if (dataGridView_Pole.Rows[row].Cells[col].Style.BackColor == System.Drawing.Color.LightGreen) return true;
-            else return false;
-        }
-
-        // Функция проверки поля на наличие введенной буквы
-        bool CheckBlue()
+        private bool CheckSelection()
         {
             bool flag = false;
             for (int i = 0; i < 5; i++)
             {
                 for (int j = 0; j < 5; j++)
                 {
-                    if (dataGridView_Pole.Rows[i].Cells[j].Style.BackColor == System.Drawing.Color.LightBlue)
+                    if (dataGridView_Pole.Rows[i].Cells[j].Style.BackColor == Color.LightGreen || dataGridView_Pole.Rows[i].Cells[j].Style.BackColor == Color.Red)
                     {
                         flag = true;
                         break;
@@ -244,131 +203,483 @@ namespace Balda_Sharp
             else return false;
         }
 
-        private void button_Clear_Click(object sender, EventArgs e)
+        // Функция проверки поля на наличие выделения
+        private bool CheckGreen(int row, int col)
         {
-            slovo = "";
-            ClearColor(); // Очистить цвета
+            if (dataGridView_Pole.Rows[row].Cells[col].Style.BackColor == Color.LightGreen) return true;
+            else return false;
         }
 
-
-
-        bool slovo_str()
+        // Функция подсчета длины выделенного слова
+        private int CountGreen()
         {
-            bool flag = false;
-            string[] mas = File.ReadAllLines("slovar.txt", UnicodeEncoding.Default);
-            for (int i = 0; i < mas.Length; i++)
+            int count = 0;
+            for (int i = 0; i < 5; i++)
             {
-                if (slovo.ToLower() == mas[i])
+                for (int j = 0; j < 5; j++)
                 {
-                    flag = true;
-                    break;
-                }
-                else
-                {
-                    flag = false;
+                    if (dataGridView_Pole.Rows[i].Cells[j].Style.BackColor == Color.LightGreen || dataGridView_Pole.Rows[i].Cells[j].Style.BackColor == Color.Red)
+                    {
+                        count++;
+                    }
                 }
             }
-            return flag;
+            return count;
         }
 
-
-        void ZamenaBlue()
+        // Функция проверки поля на наличие введенной буквы
+        private bool CheckBlue()
         {
+            bool flag = false;
             for (int i = 0; i < 5; i++)
             {
                 for (int j = 0; j < 5; j++)
                 {
                     if (MatrixColor[i][j] == 2)
                     {
-                        MatrixColor[i][j] = 1;
+                        flag = true;
+                        break;
                     }
                 }
+                if (flag) break;
+            }
+            if (flag) return true;
+            else return false;
+        }
+
+        private bool CheckBlueAndValue()
+        {
+            bool flag = false;
+            for (int i = 0; i < 5; i++)
+            {
+                for (int j = 0; j < 5; j++)
+                {
+                    if (MatrixColor[i][j] == 2 && Convert.ToString(dataGridView_Pole.Rows[i].Cells[j].Value) != "")
+                    {
+                        flag = true;
+                        break;
+                    }
+                }
+                if (flag) break;
+            }
+            if (flag) return true;
+            else return false;
+        }
+
+        // Функция проверки выделения на временной букве
+        private bool CheckGreenInBlue()
+        {
+            bool flag = false;
+            for (int i = 0; i < 5; i++)
+            {
+                for (int j = 0; j < 5; j++)
+                {
+                    if (MatrixColor[i][j] == 2 && (dataGridView_Pole.Rows[i].Cells[j].Style.BackColor == Color.LightGreen || dataGridView_Pole.Rows[i].Cells[j].Style.BackColor == Color.Red))
+                    {
+                        flag = true;
+                        break;
+                    }
+                }
+                if (flag) break;
+            }
+            if (flag) return true;
+            else return false;
+        }
+
+        // Функция проверки на наличие слова в словаре
+        private bool FindWord(string str)
+        {
+            bool flag = false;
+            string[] mas = File.ReadAllLines("slovar.txt", UnicodeEncoding.Default);
+            for (int i = 0; i < mas.Length; i++)
+            {
+                if (str.ToLower() == mas[i].ToLower())
+                {
+                    flag = true;
+                    break;
+                }
+                else flag = false;
+            }
+            return flag;
+        }
+
+        // Функция проверки на наличие слова в уже использованных словах
+        private bool FindExistWord(string str)
+        {
+            bool flag = false;
+            if (str == startSlovo) flag = true;
+            for (int i = 0; i < listBox_gamer1.Items.Count; i++)
+            {
+                if (str == listBox_gamer1.Items[i].ToString())
+                {
+                    flag = true;
+                    break;
+                }
+            }
+            for (int i = 0; i < listBox_gamer2.Items.Count; i++)
+            {
+                if (str == listBox_gamer2.Items[i].ToString())
+                {
+                    flag = true;
+                    break;
+                }
+            }
+            return flag;
+        }
+
+        private bool FindWriteSpace(){
+            int count = 0;
+            for (int i = 0; i < 5; i++)
+                for (int j = 0; j < 5; j++)
+                    if (MatrixColor[i][j] == 1) count++;
+            if (count < 5 * 5) return true;
+            else return false;
+        }
+
+        // Функция замены временной буквы на постоянную
+        private void ReplaceBlue()
+        {
+            for (int i = 0; i < 5; i++)
+                for (int j = 0; j < 5; j++)
+                    if (MatrixColor[i][j] == 2)
+                        MatrixColor[i][j] = 1;
+        }
+
+        // Функция смены игроков
+        private void ChangeRound()
+        {
+            if (round == false)
+            {
+                if (slovo != "")
+                {
+                    listBox_gamer1.Items.Add(slovo);
+                    label_gamer1_score.Text = (int.Parse(label_gamer1_score.Text) + slovo.Length).ToString();
+                }
+                label_gamer1.ForeColor = Color.Black;
+                label_gamer2.ForeColor = Color.Yellow;
+                this.label_gamer2.Font = new Font(label_gamer2.Font, FontStyle.Underline);
+                this.label_gamer1.Font = new Font(label_gamer1.Font, FontStyle.Regular);
+                round = true;
+            }
+            else
+            {
+                if (slovo != "")
+                {
+                    listBox_gamer2.Items.Add(slovo);
+                    label_gamer2_score.Text = (int.Parse(label_gamer2_score.Text) + slovo.Length).ToString();
+                }
+                label_gamer2.ForeColor = Color.Black;
+                label_gamer1.ForeColor = Color.Yellow;
+                this.label_gamer2.Font = new Font(label_gamer2.Font, FontStyle.Regular);
+                this.label_gamer1.Font = new Font(label_gamer1.Font, FontStyle.Underline);
+                round = false;
+            }
+            if (int.Parse(label_gamer1_score.Text) > int.Parse(label_gamer2_score.Text))
+            {
+                label_gamer1_score.ForeColor = Color.Green;
+                label_gamer2_score.ForeColor = Color.Red;
+            }
+            else if (int.Parse(label_gamer1_score.Text) == int.Parse(label_gamer2_score.Text))
+            {
+                label_gamer1_score.ForeColor = Color.Black;
+                label_gamer2_score.ForeColor = Color.Black;
+            }
+            else
+            {
+                label_gamer2_score.ForeColor = Color.Green;
+                label_gamer1_score.ForeColor = Color.Red;
+            }
+            slovo = "";
+
+            if (timer_flag)
+            {
+                timer1.Enabled = false;
+                time = pos_time;
+                timer1.Enabled = true;
+            }
+        }
+
+        private void ClearBlue()
+        {
+            for (int i = 0; i < 5; i++)
+                    for (int j = 0; j < 5; j++)
+                        if (MatrixColor[i][j] == 2)
+                        {
+                            MatrixColor[i][j] = 0;
+                            dataGridView_Pole.Rows[i].Cells[j].Value = "";
+                        }
+        }
+
+        private void button_Clear_Click(object sender, EventArgs e)
+        {
+            if (CheckSelection())
+            {
+                slovo = "";
+                ClearColor(); // Очистить цвета
+                panel_Alphabet.Enabled = true;
+            }
+            else if (CheckBlue())
+            {
+                slovo = ""; 
+                ClearBlue();
+                ClearColor(); // Очистить цвета
+                slovo = "";
+                button_Clear.Enabled = false;
+                panel_Alphabet.Enabled = false;
             }
         }
 
         private void button_Add_Click(object sender, EventArgs e)
         {
-            if (slovo_str() == true)
+            try
             {
-                ZamenaBlue();
-                ClearColor();
-                slovo = "";
-            }
-            else
-            {
-                if (MessageBox.Show("Такого слова нет в словаре. Добавить?", "Уведомление", MessageBoxButtons.OKCancel) == DialogResult.OK)
+                if (!FindExistWord(slovo))
                 {
-                    StreamWriter s = new StreamWriter("slovar.txt", true);
-                    s.WriteLine(slovo);
-                    s.Close();
-                    ZamenaBlue();
-                    ClearColor();
-                    slovo = "";
+                    if (FindWord(slovo))
+                    {
+                        ReplaceBlue();
+                        ClearColor();
+                        if (!FindWriteSpace())
+                        {
+                            if (int.Parse(label_gamer1_score.Text) > int.Parse(label_gamer2_score.Text))
+                                if (MessageBox.Show("Победил игрок1!", "Конец игры!", MessageBoxButtons.OK, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                {
+                                    if (MessageBox.Show("Вернуться в меню?", "Конец игры!", MessageBoxButtons.OKCancel, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                    {
+                                        Form_Game fm = new Form_Game();
+                                        audio.Stop();
+                                        Hide();
+                                        menu.Show();
+                                    }
+                                    else
+                                    {
+                                        Application.Exit();
+                                    }
+                                }
+                            else if (int.Parse(label_gamer1_score.Text) < int.Parse(label_gamer2_score.Text))
+                                    if (MessageBox.Show("Победил игрок2!", "Конец игры!", MessageBoxButtons.OK, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                    {
+                                        if (MessageBox.Show("Вернуться в меню?", "Конец игры!", MessageBoxButtons.OKCancel, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                        {
+                                            Form_Game fm = new Form_Game();
+                                            audio.Stop();
+                                            Hide();
+                                            menu.Show();
+                                        }
+                                        else
+                                        {
+                                            Application.Exit();
+                                        }
+                                    }
+                            else
+                                        if (MessageBox.Show("Ничья!", "Конец игры!", MessageBoxButtons.OK, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                        {
+                                            if (MessageBox.Show("Вернуться в меню?", "Конец игры!", MessageBoxButtons.OKCancel, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                            {
+                                                Form_Game fm = new Form_Game();
+                                                audio.Stop();
+                                                Hide();
+                                                menu.Show();
+                                            }
+                                            else
+                                            {
+                                                Application.Exit();
+                                            }
+                                        }
+                        }
+                        ChangeRound();
+                        panel_Alphabet.Enabled = false;
+                        button_Clear.Enabled = false;
+                    }
+                    else
+                    {
+                        if (MessageBox.Show("Такого слова нет в словаре. Добавить?", "Уведомление", MessageBoxButtons.OKCancel) == DialogResult.OK)
+                        {
+                            StreamWriter s = new StreamWriter("slovar.txt", true);
+                            s.WriteLine(slovo.ToLower());
+                            s.Close();
+                            ReplaceBlue();
+                            ClearColor();
+                            if (!FindWriteSpace())
+                            {
+                                if (int.Parse(label_gamer1_score.Text) > int.Parse(label_gamer2_score.Text))
+                                    if (MessageBox.Show("Победил игрок1!", "Конец игры!", MessageBoxButtons.OK, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                    {
+                                        if (MessageBox.Show("Вернуться в меню?", "Конец игры!", MessageBoxButtons.OKCancel, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                        {
+                                            Form_Game fm = new Form_Game();
+                                            audio.Stop();
+                                            Hide();
+                                            menu.Show();
+                                        }
+                                        else
+                                        {
+                                            Application.Exit();
+                                        }
+                                    }
+                                else if (int.Parse(label_gamer1_score.Text) < int.Parse(label_gamer2_score.Text))
+                                        if (MessageBox.Show("Победил игрок2!", "Конец игры!", MessageBoxButtons.OK, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                        {
+                                            if (MessageBox.Show("Вернуться в меню?", "Конец игры!", MessageBoxButtons.OKCancel, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                            {
+                                                Form_Game fm = new Form_Game();
+                                                audio.Stop();
+                                                Hide();
+                                                menu.Show();
+                                            }
+                                            else
+                                            {
+                                                Application.Exit();
+                                            }
+                                        }
+                                else
+                                            if (MessageBox.Show("Ничья!", "Конец игры!", MessageBoxButtons.OK, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                            {
+                                                if (MessageBox.Show("Вернуться в меню?", "Конец игры!", MessageBoxButtons.OKCancel, MessageBoxIcon.Exclamation) == DialogResult.OK)
+                                                {
+                                                    Form_Game fm = new Form_Game();
+                                                    audio.Stop();
+                                                    Hide();
+                                                    menu.Show();
+                                                }
+                                                else
+                                                {
+                                                    Application.Exit();
+                                                }
+                                            }
+                            }
+                            ChangeRound();
+                            button_Clear.Enabled = false;
+                        }
+                        else
+                        {
+                            ClearColor();
+                            slovo = "";
+                            panel_Alphabet.Enabled = true;
+                        }
+                    }
                 }
                 else
                 {
                     ClearColor();
                     slovo = "";
+                    throw new Exception("Такое слово уже есть!");
                 }
-
-
+                
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Балда", MessageBoxButtons.OK);
             }
         }
 
-        private void button1_Click_1(object sender, EventArgs e)
+        private void button_char_Click(object sender, EventArgs e)
         {
-            panel1.Visible = false;
+            alphabet_char = Convert.ToChar(((Button)sender).Text);
+            int x = 0, y = 0;
+            for (int i = 0; i < 5; i++)
+                for (int j = 0; j < 5; j++)
+                    if (MatrixColor[i][j] == 2)
+                    {
+                        x = i;
+                        y = j;
+                        dataGridView_Pole.Rows[x].Cells[y].Value = alphabet_char.ToString();
+                        break;
+                    }
+            alphabet_char = '\0';
+            button_Clear.Enabled = true;
         }
 
-        private void button_exit_Click(object sender, EventArgs e)
+        public void Form_Game_Load(object sender, EventArgs e)
+        {
+            bool fl = Form_Menu.flag;
+            if (fl == false) Application.Exit();
+
+            string puth = Environment.CurrentDirectory + @"\Music\";
+            DirectoryInfo dir = new DirectoryInfo(puth);
+
+            string[] s = new string[0];
+            Array.Resize(ref s, 0);
+            foreach (FileInfo files in dir.GetFiles())
+            {
+                Array.Resize(ref s, s.Length + 1);
+                s[s.Length - 1] = puth + files.Name;
+            }
+
+            Random Random = new Random();
+            string startmusic = s[Random.Next(0, s.Length - 1)];
+
+             
+            bool music = Form_Menu.music;
+            if (music == true) { 
+                audio.Play();
+                button_music.BackgroundImage = Image.FromFile("off.jpg");
+            }
+            else {
+                button_music.BackgroundImage = Image.FromFile("on.png");
+                audio.Stop();
+            }
+        }
+
+        public void Form_Game_FormClosed(object sender, FormClosedEventArgs e)
         {
             Application.Exit();
         }
 
-        private void button_option_Click(object sender, EventArgs e)
-        {
 
+
+
+        public void button_exit_menu_Click(object sender, EventArgs e)
+        {
+            if (MessageBox.Show("Вы действительно желаете завершить игру? Результаты не будут сохранены!", "Предупреждение", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK){
+                Form_Game fm = new Form_Game();
+                audio.Stop();
+                Hide();
+                menu.Show();
+            }
         }
 
-        private void button_player_vs_player_Click(object sender, EventArgs e)
+        private void button_music_Click(object sender, EventArgs e)
         {
-            
+            bool music = Form_Menu.music;
+            if (music == true)
+            {
+                button_music.BackgroundImage = Image.FromFile("on.png");
+                audio.Pause();
+                Form_Menu.music = false;
+                
+            }
+            else {
+                button_music.BackgroundImage = Image.FromFile("off.jpg");
+                Form_Menu.music = true;
+                audio.Play();
+            }
         }
 
-        private void button_new_game_Click(object sender, EventArgs e)
+        private void button2_Click(object sender, EventArgs e)
         {
-            button_exit.Visible = false;
-            button_new_game.Visible = false;
-            button_option.Visible = false;
-            button_player_vs_computer.Visible = true;
-            button_player_vs_player.Visible = true;
+            Form_Help h = new Form_Help();
+            h.ShowDialog();
         }
 
-        private void button_player_vs_player_Click_1(object sender, EventArgs e)
+        private void timer1_Tick(object sender, EventArgs e)
         {
-            audio.Play();
-            panel1.Visible = false;
-                //Microsoft.DirectX.AudioVideoPlayback.Audio audio =
-                //    new Microsoft.DirectX.AudioVideoPlayback.Audio(@"C:\kuni.mp3");
-
-
-                //System.Media.SoundPlayer sp = new System.Media.SoundPlayer(@"C:\kuni.mp3");
-                //sp.Play();
-           
+            timer1.Enabled = false;
+            timer1.Enabled = true;
+            time--;
+            label_timer.Text = time.ToString();
+            if (time <= 5)
+                label_timer.ForeColor = Color.Red;
+            if (time == 0)
+            {
+                slovo = "";
+                time = pos_time + 1;
+                label_timer.ForeColor = Color.Black;
+                ClearBlue();
+                ClearColor();
+                ChangeRound();
+            }
         }
 
-        private void button_exit_Click_1(object sender, EventArgs e)
-        {
-            Application.Exit();
-        }
-
-        private void button_option_Click_1(object sender, EventArgs e)
-        {
-            button_exit.Visible = false;
-            button_new_game.Visible = false;
-            button_option.Visible = false;
-            button_player_vs_computer.Visible = false;
-            button_player_vs_player.Visible = false;
-        }
     }
 }
